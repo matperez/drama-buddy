@@ -1,0 +1,7 @@
+{
+  "name": "DramaBuddy - Play Reading Assistant",
+  "description": "Upload scripts, assign AI voices to roles, and practice your lines. The app reads other roles and pauses when it's your turn.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
