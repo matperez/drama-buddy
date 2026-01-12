@@ -111,6 +111,15 @@ export class TTSService {
   }
   
   async resumeContext() {
+    // Активируем провайдер, если он поддерживает активацию (важно для мобильных)
+    if (this.provider.activate) {
+      try {
+        await this.provider.activate();
+      } catch (error) {
+        console.warn('Failed to activate TTS provider:', error);
+      }
+    }
+
     // Для провайдеров с прямым воспроизведением (Web Speech API) 
     // AudioContext не используется, но мы все равно пытаемся его разбудить
     // для совместимости и для случаев, когда он может понадобиться

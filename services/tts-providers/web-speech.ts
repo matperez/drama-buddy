@@ -3,6 +3,7 @@ import { ITTSProvider } from './types';
 export class WebSpeechTTSProvider implements ITTSProvider {
   private synth: SpeechSynthesis | null = null;
   private availableVoices: SpeechSynthesisVoice[] = [];
+  private isActivated: boolean = false;
 
   constructor() {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -13,6 +14,34 @@ export class WebSpeechTTSProvider implements ITTSProvider {
       if (this.synth.onvoiceschanged !== undefined) {
         this.synth.onvoiceschanged = () => this.loadVoices();
       }
+    }
+  }
+
+  /**
+   * Активация Web Speech API для мобильных браузеров
+   * Должна быть вызвана при первом пользовательском взаимодействии
+   */
+  async activate(): Promise<void> {
+    if (this.isActivated || !this.synth) {
+      return;
+    }
+
+    // На мобильных устройствах нужно "разбудить" speechSynthesis
+    // путем создания и немедленной отмены пустого utterance
+    try {
+      const testUtterance = new SpeechSynthesisUtterance('');
+      testUtterance.volume = 0;
+      this.synth.speak(testUtterance);
+      this.synth.cancel();
+      
+      // Ждем немного для инициализации
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      this.isActivated = true;
+    } catch (error) {
+      console.warn('Failed to activate speech synthesis:', error);
+      // Продолжаем работу даже если активация не удалась
+      this.isActivated = true;
     }
   }
 
@@ -184,6 +213,9 @@ export class WebSpeechTTSProvider implements ITTSProvider {
     if (!this.synth) {
       throw new Error('Web Speech API is not available in this browser');
     }
+
+    // Активируем Web Speech API перед первым использованием (важно для мобильных)
+    await this.activate();
 
     // На мобильных устройствах голоса могут загружаться асинхронно
     // Ждем, пока голоса загрузятся

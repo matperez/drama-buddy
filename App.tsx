@@ -566,7 +566,17 @@ const App: React.FC = () => {
             <div className="flex justify-center pt-6 flex-shrink-0">
               <button
                 disabled={!userRole || script.lines.length === 0}
-                onClick={() => setAppState(AppState.READING)}
+                onClick={async () => {
+                  // Активируем TTS провайдер перед переходом к чтению (важно для мобильных)
+                  if (ttsServiceRef.current) {
+                    try {
+                      await ttsServiceRef.current.resumeContext();
+                    } catch (error) {
+                      console.warn('Failed to activate TTS:', error);
+                    }
+                  }
+                  setAppState(AppState.READING);
+                }}
                 className="px-12 py-5 bg-indigo-600 text-white rounded-2xl font-bold text-xl shadow-xl hover:bg-indigo-700 disabled:opacity-50 transform transition active:scale-95 flex items-center gap-3"
               >
                 Go to Script Viewer

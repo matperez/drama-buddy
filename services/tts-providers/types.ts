@@ -39,4 +39,9 @@ export interface ITTSProvider {
    * Прямое воспроизведение (для провайдеров, которые не могут предоставить AudioBuffer)
    */
   speakDirectly?(text: string, voice: string): Promise<void>;
+
+  /**
+   * Активация провайдера (для мобильных браузеров, требуется пользовательское взаимодействие)
+   */
+  activate?(): Promise<void>;
 }
