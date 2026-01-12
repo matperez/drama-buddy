@@ -29,13 +29,28 @@ export class WebSpeechTTSProvider implements ITTSProvider {
     // На мобильных устройствах нужно "разбудить" speechSynthesis
     // путем создания и немедленной отмены пустого utterance
     try {
-      const testUtterance = new SpeechSynthesisUtterance('');
-      testUtterance.volume = 0;
-      this.synth.speak(testUtterance);
-      this.synth.cancel();
+      // Убеждаемся, что голоса загружены
+      await this.ensureVoicesLoaded();
       
-      // Ждем немного для инициализации
-      await new Promise(resolve => setTimeout(resolve, 50));
+      // Создаем тестовый utterance с минимальным текстом
+      // Это "разбудит" speechSynthesis на мобильных устройствах
+      const voices = this.synth.getVoices();
+      if (voices.length > 0) {
+        const testUtterance = new SpeechSynthesisUtterance(' ');
+        testUtterance.volume = 0.01; // Очень тихий, но не 0 (0 может не работать)
+        testUtterance.rate = 10; // Очень быстро, чтобы закончилось мгновенно
+        testUtterance.voice = voices[0];
+        
+        // Запускаем и сразу отменяем
+        this.synth.speak(testUtterance);
+        
+        // Даем немного времени на инициализацию, затем отменяем
+        await new Promise(resolve => setTimeout(resolve, 10));
+        this.synth.cancel();
+        
+        // Ждем еще немного для завершения инициализации
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
       
       this.isActivated = true;
     } catch (error) {
