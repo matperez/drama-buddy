@@ -2,19 +2,45 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# DramaBuddy - Play Reading Assistant
 
-This contains everything you need to run your app locally.
+Помощник для чтения пьес с поддержкой нескольких провайдеров TTS (синтеза речи).
 
-View your app in AI Studio: https://ai.studio/apps/drive/1ztAD3Mv8mlSx0jNPFsxIAFuKVlOgc4_u
+## Возможности
 
-## Run Locally
+- Загрузка текстовых скриптов пьес
+- Выбор своей роли и назначение AI-голосов другим персонажам
+- Автоматическое чтение реплик других персонажей через TTS
+- Пауза на ваших репликах с возможностью произнести их
+- Автоматический переход к следующей реплике через распознавание речи
+- Поддержка нескольких провайдеров TTS:
+  - **Web Speech API** - браузерный синтез речи (бесплатный, не требует API ключа)
+  - **OpenAI TTS** - высококачественный синтез речи (требует API ключ)
 
-**Prerequisites:**  Node.js
+## Запуск локально
 
+**Требования:** Node.js
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+1. Установите зависимости:
+   ```bash
+   npm install
+   ```
+
+2. (Опционально) Настройте API ключи в `.env.local`:
+   ```
+   OPENAI_API_KEY=sk-...  # Для использования OpenAI TTS
+   ```
+
+3. Запустите приложение:
+   ```bash
+   npm run dev
+   ```
+
+## Использование
+
+1. Загрузите текстовый файл со скриптом в формате `РОЛЬ: текст реплики`
+2. Выберите провайдер TTS (Web Speech API или OpenAI TTS)
+3. Если выбран OpenAI TTS, введите API ключ (или используйте переменную окружения)
+4. Выберите свою роль
+5. Назначьте голоса другим персонажам
+6. Начните чтение и произносите свои реплики, когда наступит ваша очередь

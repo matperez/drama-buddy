@@ -1,11 +1,10 @@
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { parseScript } from './utils/parser';
-import { TTSService } from './services/tts';
-import { ScriptData, AppState, RoleAssignment, VoiceName, ScriptLine } from './types';
-
-// Constants
-const VOICES: VoiceName[] = ['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr'];
+import { TTSService, createTTSProvider } from './services/tts';
+import { ScriptData, AppState, RoleAssignment, VoiceName, ScriptLine, TTSProviderType, TTSConfig } from './types';
+import { OpenAITTSProvider } from './services/tts-providers/openai';
+import { WebSpeechTTSProvider } from './services/tts-providers/web-speech';
 const ROLE_COLORS = [
   'bg-blue-500',
   'bg-purple-500',
@@ -34,6 +33,9 @@ const App: React.FC = () => {
   const [isMicEnabled, setIsMicEnabled] = useState<boolean>(true);
   const [isRecognizing, setIsRecognizing] = useState<boolean>(false);
   const [lastTranscript, setLastTranscript] = useState<string>('');
+  const [ttsProvider, setTtsProvider] = useState<TTSProviderType>('web-speech');
+  const [ttsApiKey, setTtsApiKey] = useState<string>('');
+  const [availableVoices, setAvailableVoices] = useState<VoiceName[]>([]);
   
   const isPlayingRef = useRef<boolean>(false);
   const ttsServiceRef = useRef<TTSService | null>(null);
@@ -52,10 +54,52 @@ const App: React.FC = () => {
   useEffect(() => { userRoleRef.current = userRole; }, [userRole]);
   useEffect(() => { assignmentsRef.current = assignments; }, [assignments]);
 
-  // Initialize TTS
+  // Initialize TTS with selected provider
   useEffect(() => {
-    ttsServiceRef.current = new TTSService();
-  }, []);
+    const initializeTTS = async () => {
+      try {
+        const provider = createTTSProvider(ttsProvider, ttsApiKey || undefined);
+        const isAvailable = await Promise.resolve(provider.isAvailable());
+        
+        if (!isAvailable) {
+          if (ttsProvider === 'openai' && !ttsApiKey) {
+            // Не показываем ошибку, если просто не введен ключ
+            return;
+          }
+          addToast(`Провайдер ${provider.getName()} недоступен. Проверьте настройки.`, 'error');
+          return;
+        }
+
+        const voices = provider.getAvailableVoices();
+        if (voices.length === 0) {
+          addToast('Не найдено доступных голосов для выбранного провайдера', 'error');
+          return;
+        }
+
+        setAvailableVoices(voices);
+        ttsServiceRef.current = new TTSService(provider);
+        
+        // Обновляем назначения голосов при смене провайдера, если скрипт уже загружен
+        if (script && voices.length > 0) {
+          const newAssignments: RoleAssignment = { ...assignments };
+          script.roles.forEach((role, idx) => {
+            if (role !== userRole) {
+              // Обновляем голос только если его нет или если провайдер изменился
+              if (!newAssignments[role] || !voices.includes(newAssignments[role])) {
+                newAssignments[role] = voices[idx % voices.length] || voices[0];
+              }
+            }
+          });
+          setAssignments(newAssignments);
+        }
+      } catch (error) {
+        addToast(`Ошибка инициализации TTS: ${(error as Error).message}`, 'error');
+      }
+    };
+
+    initializeTTS();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ttsProvider, ttsApiKey]);
 
   const handleNextTurn = useCallback(async () => {
     const nextIndex = currentLineIndexRef.current + 1;
@@ -176,10 +220,11 @@ const App: React.FC = () => {
         
         setScript(parsed);
         
-        // Default assignments
+        // Default assignments using available voices from current provider
+        const voices = availableVoices.length > 0 ? availableVoices : ['default'];
         const initialAssignments: RoleAssignment = {};
         parsed.roles.forEach((role, idx) => {
-          initialAssignments[role] = VOICES[idx % VOICES.length];
+          initialAssignments[role] = voices[idx % voices.length] || voices[0];
         });
         setAssignments(initialAssignments);
         setAppState(AppState.CONFIGURING);
@@ -413,6 +458,57 @@ const App: React.FC = () => {
               <p className="text-slate-500 mt-2">Identify your role and assign voices to others</p>
             </div>
 
+            {/* TTS Provider Selection */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <span className="w-2 h-6 bg-purple-500 rounded-full"></span>
+                Выберите провайдер TTS
+              </h3>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <button
+                    onClick={() => setTtsProvider('web-speech')}
+                    className={`p-4 rounded-xl border-2 transition text-left ${
+                      ttsProvider === 'web-speech'
+                        ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-500/20'
+                        : 'border-slate-200 hover:border-indigo-300'
+                    }`}
+                  >
+                    <div className="font-bold text-slate-800 mb-1">Web Speech API</div>
+                    <div className="text-sm text-slate-600">Браузерный синтез речи. Бесплатный, не требует API ключа.</div>
+                  </button>
+                  <button
+                    onClick={() => setTtsProvider('openai')}
+                    className={`p-4 rounded-xl border-2 transition text-left ${
+                      ttsProvider === 'openai'
+                        ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-500/20'
+                        : 'border-slate-200 hover:border-indigo-300'
+                    }`}
+                  >
+                    <div className="font-bold text-slate-800 mb-1">OpenAI TTS</div>
+                    <div className="text-sm text-slate-600">Высококачественный синтез речи. Требует API ключ OpenAI.</div>
+                  </button>
+                </div>
+                {ttsProvider === 'openai' && (
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      OpenAI API Key
+                    </label>
+                    <input
+                      type="password"
+                      value={ttsApiKey}
+                      onChange={(e) => setTtsApiKey(e.target.value)}
+                      placeholder="sk-..."
+                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">
+                      Ключ можно получить на <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">platform.openai.com</a>
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 min-h-0">
               <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col min-h-0">
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 flex-shrink-0">
@@ -450,11 +546,16 @@ const App: React.FC = () => {
                         <span className="text-sm font-bold text-slate-700 truncate uppercase tracking-tight">{role}</span>
                       </div>
                       <select
-                        value={assignments[role]}
+                        value={assignments[role] || availableVoices[0] || ''}
                         onChange={(e) => setAssignments({ ...assignments, [role]: e.target.value as VoiceName })}
                         className="text-sm border border-slate-200 rounded-lg py-1.5 px-2 focus:ring-2 focus:ring-indigo-500/20 outline-none bg-white shadow-sm font-medium"
+                        disabled={availableVoices.length === 0}
                       >
-                        {VOICES.map(v => <option key={v} value={v}>{v}</option>)}
+                        {availableVoices.length > 0 ? (
+                          availableVoices.map(v => <option key={v} value={v}>{v}</option>)
+                        ) : (
+                          <option value="">Загрузка голосов...</option>
+                        )}
                       </select>
                     </div>
                   ))}

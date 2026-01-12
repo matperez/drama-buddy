@@ -11,7 +11,11 @@ export interface ScriptData {
   roles: string[];
 }
 
-export type VoiceName = 'Kore' | 'Puck' | 'Charon' | 'Fenrir' | 'Zephyr';
+// Типы провайдеров TTS
+export type TTSProviderType = 'openai' | 'web-speech';
+
+// Голоса теперь строки, так как разные провайдеры имеют разные голоса
+export type VoiceName = string;
 
 export interface RoleAssignment {
   [roleName: string]: VoiceName;
@@ -21,4 +25,10 @@ export enum AppState {
   IDLE = 'IDLE',
   CONFIGURING = 'CONFIGURING',
   READING = 'READING'
+}
+
+// Конфигурация TTS провайдера
+export interface TTSConfig {
+  provider: TTSProviderType;
+  apiKey?: string;
 }
