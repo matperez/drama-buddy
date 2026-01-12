@@ -313,11 +313,16 @@ export class WebSpeechTTSProvider implements ITTSProvider {
       // Подписываемся на событие загрузки голосов
       if (this.synth.onvoiceschanged !== undefined) {
         const originalHandler = this.synth.onvoiceschanged;
-        this.synth.onvoiceschanged = () => {
+        this.synth.onvoiceschanged = (event?: Event) => {
           this.loadVoices();
           if (originalHandler && typeof originalHandler === 'function') {
             try {
-              originalHandler();
+              // Вызываем оригинальный обработчик, если он есть
+              if (event) {
+                (originalHandler as (event: Event) => void)(event);
+              } else {
+                (originalHandler as () => void)();
+              }
             } catch (e) {
               // Игнорируем ошибки в оригинальном обработчике
             }
