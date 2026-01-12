@@ -111,9 +111,19 @@ export class TTSService {
   }
   
   async resumeContext() {
-    const ctx = this.getContext();
-    if (ctx.state === 'suspended') {
-      await ctx.resume();
+    // Для провайдеров с прямым воспроизведением (Web Speech API) 
+    // AudioContext не используется, но мы все равно пытаемся его разбудить
+    // для совместимости и для случаев, когда он может понадобиться
+    try {
+      const ctx = this.getContext();
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+    } catch (error) {
+      // Игнорируем ошибки AudioContext для провайдеров с прямым воспроизведением
+      if (!this.useDirectPlayback) {
+        console.warn('Failed to resume audio context:', error);
+      }
     }
   }
 

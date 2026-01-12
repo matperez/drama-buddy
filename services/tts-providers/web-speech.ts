@@ -185,11 +185,25 @@ export class WebSpeechTTSProvider implements ITTSProvider {
       throw new Error('Web Speech API is not available in this browser');
     }
 
+    // На мобильных устройствах голоса могут загружаться асинхронно
+    // Ждем, пока голоса загрузятся
+    await this.ensureVoicesLoaded();
+
     // Останавливаем любые текущие воспроизведения
-    this.synth.cancel();
+    // Но делаем это аккуратно, чтобы не блокировать на мобильных
+    if (this.synth.speaking) {
+      this.synth.cancel();
+      // Небольшая задержка для мобильных устройств
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
 
     return new Promise((resolve, reject) => {
       const voices = this.synth!.getVoices();
+      
+      if (voices.length === 0) {
+        reject(new Error('No voices available. Please wait for voices to load.'));
+        return;
+      }
       
       // Сначала ищем точное совпадение по имени
       let selectedVoice = voices.find(v => v.name === voice);
@@ -230,10 +244,90 @@ export class WebSpeechTTSProvider implements ITTSProvider {
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
 
-      utterance.onend = () => resolve();
-      utterance.onerror = (error) => reject(new Error(`Speech synthesis error: ${error.error}`));
+      // Обработчики событий
+      let resolved = false;
+      
+      utterance.onend = () => {
+        if (!resolved) {
+          resolved = true;
+          resolve();
+        }
+      };
+      
+      utterance.onerror = (error) => {
+        if (!resolved) {
+          resolved = true;
+          reject(new Error(`Speech synthesis error: ${error.error}`));
+        }
+      };
 
-      this.synth!.speak(utterance);
+      // На мобильных устройствах может потребоваться небольшая задержка
+      try {
+        this.synth!.speak(utterance);
+        
+        // Таймаут на случай, если события не сработают
+        setTimeout(() => {
+          if (!resolved && !this.synth!.speaking) {
+            resolved = true;
+            resolve();
+          }
+        }, 30000); // 30 секунд максимум
+      } catch (error) {
+        if (!resolved) {
+          resolved = true;
+          reject(new Error(`Failed to speak: ${(error as Error).message}`));
+        }
+      }
+    });
+  }
+
+  /**
+   * Убеждаемся, что голоса загружены (особенно важно для мобильных устройств)
+   */
+  private async ensureVoicesLoaded(): Promise<void> {
+    if (!this.synth) {
+      return;
+    }
+
+    // Если голоса уже загружены, возвращаемся
+    if (this.synth.getVoices().length > 0) {
+      this.loadVoices();
+      return;
+    }
+
+    // Ждем загрузки голосов (максимум 3 секунды)
+    return new Promise((resolve) => {
+      const maxWait = 3000;
+      const startTime = Date.now();
+      
+      const checkVoices = () => {
+        const voices = this.synth!.getVoices();
+        if (voices.length > 0 || Date.now() - startTime > maxWait) {
+          this.loadVoices();
+          resolve();
+        } else {
+          setTimeout(checkVoices, 100);
+        }
+      };
+
+      // Подписываемся на событие загрузки голосов
+      if (this.synth.onvoiceschanged !== undefined) {
+        const originalHandler = this.synth.onvoiceschanged;
+        this.synth.onvoiceschanged = () => {
+          this.loadVoices();
+          if (originalHandler && typeof originalHandler === 'function') {
+            try {
+              originalHandler();
+            } catch (e) {
+              // Игнорируем ошибки в оригинальном обработчике
+            }
+          }
+          resolve();
+        };
+      }
+
+      // Начинаем проверку
+      checkVoices();
     });
   }
 }
