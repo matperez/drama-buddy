@@ -45,10 +45,12 @@ const App: React.FC = () => {
   const scriptRef = useRef<ScriptData | null>(null);
   const currentLineIndexRef = useRef<number>(-1);
   const userRoleRef = useRef<string>('');
+  const assignmentsRef = useRef<RoleAssignment>({});
 
   useEffect(() => { scriptRef.current = script; }, [script]);
   useEffect(() => { currentLineIndexRef.current = currentLineIndex; }, [currentLineIndex]);
   useEffect(() => { userRoleRef.current = userRole; }, [userRole]);
+  useEffect(() => { assignmentsRef.current = assignments; }, [assignments]);
 
   // Initialize TTS
   useEffect(() => {
@@ -72,7 +74,7 @@ const App: React.FC = () => {
 
   // Initialize Speech Recognition
   useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
@@ -245,11 +247,28 @@ const App: React.FC = () => {
       return;
     }
 
+    // Prefetch logic: Look ahead for the next non-user line
+    const prefetchNextLine = () => {
+      if (!scriptRef.current) return;
+      for (let i = index + 1; i < scriptRef.current.lines.length; i++) {
+        const nextLine = scriptRef.current.lines[i];
+        if (nextLine.role.trim().toLowerCase() !== userRoleRef.current.trim().toLowerCase()) {
+          const voice = assignmentsRef.current[nextLine.role] || 'Kore';
+          ttsServiceRef.current?.prefetch(nextLine.text, voice);
+          break; // Only prefetch the immediate next AI line
+        }
+      }
+    };
+
     // Play TTS
     const voice = assignments[line.role] || 'Kore';
     setIsLoadingLine(true);
     try {
       if (!ttsServiceRef.current) throw new Error("Audio Service not initialized");
+      
+      // Start prefetching while current is loading/playing
+      prefetchNextLine();
+
       await ttsServiceRef.current.speak(line.text, voice);
     } catch (err) {
       addToast(`TTS Error: ${(err as Error).message}`, 'error');
@@ -264,7 +283,8 @@ const App: React.FC = () => {
     // Continue to next if still active
     if (isPlayingRef.current) {
       const nextIndex = index + 1;
-      setTimeout(() => readNext(nextIndex), 150);
+      // Slight delay for natural flow
+      setTimeout(() => readNext(nextIndex), 100);
     } else {
       readingInProgressRef.current = false;
     }

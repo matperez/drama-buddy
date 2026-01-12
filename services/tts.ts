@@ -36,6 +36,7 @@ async function decodeAudioData(
 export class TTSService {
   private audioContext: AudioContext | null = null;
   private cache: Map<string, AudioBuffer> = new Map();
+  private pendingRequests: Map<string, Promise<AudioBuffer>> = new Map();
 
   private getContext(): AudioContext {
     if (!this.audioContext) {
@@ -48,29 +49,32 @@ export class TTSService {
     return `${voice}:${text}`;
   }
 
-  async speak(text: string, voice: VoiceName): Promise<void> {
+  /**
+   * Fetches and decodes audio, ensuring multiple calls for the same text/voice
+   * reuse the same promise/result.
+   */
+  async getAudioBuffer(text: string, voice: VoiceName): Promise<AudioBuffer> {
     const ctx = this.getContext();
     const cacheKey = this.getCacheKey(text, voice);
-    
-    // Resume context if it's suspended (browser policy)
-    if (ctx.state === 'suspended') {
-      await ctx.resume();
+
+    // 1. Check cache
+    if (this.cache.has(cacheKey)) {
+      return this.cache.get(cacheKey)!;
     }
 
-    let audioBuffer: AudioBuffer;
+    // 2. Check if there's an ongoing request for this exact text
+    if (this.pendingRequests.has(cacheKey)) {
+      return this.pendingRequests.get(cacheKey)!;
+    }
 
-    if (this.cache.has(cacheKey)) {
-      console.log(`TTS: Using cached audio for: "${text.substring(0, 30)}..."`);
-      audioBuffer = this.cache.get(cacheKey)!;
-    } else {
+    // 3. Perform the request
+    const requestPromise = (async () => {
       try {
         if (!process.env.API_KEY) {
           throw new Error("API Key is not configured.");
         }
 
-        console.log(`TTS: Fetching speech for: "${text.substring(0, 30)}..." with voice ${voice}`);
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        
         const response = await ai.models.generateContent({
           model: "gemini-2.5-flash-preview-tts",
           contents: [{ parts: [{ text }] }],
@@ -86,20 +90,46 @@ export class TTSService {
 
         const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
         if (!base64Audio) {
-          throw new Error("Model response did not contain audio data. It might be a safety filter or API issue.");
+          throw new Error("Model response did not contain audio data.");
         }
 
         const audioBytes = decode(base64Audio);
-        audioBuffer = await decodeAudioData(audioBytes, ctx, 24000, 1);
+        const buffer = await decodeAudioData(audioBytes, ctx, 24000, 1);
         
-        // Save to cache
-        this.cache.set(cacheKey, audioBuffer);
-        console.log(`TTS: Audio cached. Cache size: ${this.cache.size}`);
-      } catch (error) {
-        console.error("TTSService.speak Critical Error:", error);
-        throw error; 
+        this.cache.set(cacheKey, buffer);
+        return buffer;
+      } finally {
+        this.pendingRequests.delete(cacheKey);
       }
+    })();
+
+    this.pendingRequests.set(cacheKey, requestPromise);
+    return requestPromise;
+  }
+
+  /**
+   * Loads audio into cache without playing it.
+   */
+  async prefetch(text: string, voice: VoiceName): Promise<void> {
+    try {
+      await this.getAudioBuffer(text, voice);
+      console.log(`TTS: Prefetched audio for: "${text.substring(0, 20)}..."`);
+    } catch (e) {
+      console.warn("TTS: Prefetch failed", e);
     }
+  }
+
+  /**
+   * Plays audio for the given text.
+   */
+  async speak(text: string, voice: VoiceName): Promise<void> {
+    const ctx = this.getContext();
+    
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+
+    const audioBuffer = await this.getAudioBuffer(text, voice);
 
     return new Promise((resolve, reject) => {
       const source = ctx.createBufferSource();
@@ -125,5 +155,6 @@ export class TTSService {
 
   async clearCache() {
     this.cache.clear();
+    this.pendingRequests.clear();
   }
 }
